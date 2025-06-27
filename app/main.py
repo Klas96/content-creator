@@ -23,7 +23,7 @@ from .generators.podcast import (
 )
 from .generators.article import generate_article
 from .generators.social import generate_tweet_thread
-from .generators.book import generate_book_chapter, generate_book
+from .generators.book import generate_book_chapter, generate_book, generate_book_pdf
 import json # For saving tweet_thread output
 from .config import OUTPUT_DIR
 from app.api import games
@@ -548,10 +548,13 @@ async def process_content_generation(job_id: str, request: ContentRequest, outpu
             if "error" in book_content_data:
                 raise ValueError(f"Book generation failed: {book_content_data['error']}")
 
-            output_filename = "book.txt"
-            media_type = "text/plain"
-            with open(os.path.join(output_dir, output_filename), 'w') as f:
-                f.write(book_content_data["full_book_content"])
+            # Generate PDF from the book content
+            book_title = book_content_data.get("title", request.book_options.book_topic or "Generated Book")
+            pdf_path = await generate_book_pdf(book_title, book_content_data["full_book_content"], output_dir)
+
+            output_filename = os.path.basename(pdf_path)
+            media_type = "application/pdf"
+            
             active_jobs[job_id]["output_filename"] = output_filename
             active_jobs[job_id]["media_type"] = media_type
             active_jobs[job_id]["book_metadata"] = {

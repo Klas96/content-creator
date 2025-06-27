@@ -1,0 +1,32 @@
+\documentclass{book}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{titlesec}
+\usepackage{hyperref}
+
+% Customizing chapter and section titles
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\centering}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{50pt}{40pt}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titlespacing*{\section}{0pt}{3.5ex plus 1ex minus .2ex}{2.3ex plus .2ex}
+
+\begin{document}
+
+\title{<<BOOK_TITLE>>}
+\author{AI Generated}
+\date{} % No date
+
+\maketitle
+
+\frontmatter
+\tableofcontents
+
+\mainmatter
+
+<<BOOK_CONTENT>>
+
+\end{document}

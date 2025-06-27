@@ -3,6 +3,8 @@ from app.llm_clients import generate_text_completion
 from app.config import TEST_MODE
 from app.utils import load_prompt
 import json
+import subprocess
+import os
 
 async def generate_book_chapter(
     plot_summary: Optional[str] = None,
@@ -203,13 +205,96 @@ async def generate_book(
         full_book_content.append(f"## {chapter_info.get('title', f'Chapter {i+1}')}\n\n{chapter_text}\n\n")
         previous_chapter_summary = chapter_info.get("summary") # Update for next chapter
 
-    return {
-        "title": f"Book: {book_topic}",
+    book_data = {
+        "title": outline.get("title", f"Book: {book_topic}"),
         "plot_summary": outline.get("plot_summary"),
         "characters": outline.get("characters"),
         "chapters": outline.get("chapters"),
         "full_book_content": "".join(full_book_content)
     }
+    return book_data
+
+async def generate_book_pdf(book_title: str, book_content: str, output_dir: str) -> str:
+    """
+    Generates a PDF file from book content using LaTeX.
+    """
+    if TEST_MODE:
+        pdf_path = os.path.join(output_dir, "book.pdf")
+        with open(pdf_path, "w") as f:
+            f.write(f"Mock PDF content for: {book_title}\n{book_content[:100]}...")
+        print(f"Test mode: Generated mock PDF at {pdf_path}")
+        return pdf_path
+
+    template_path = "templates/book_template.tex"
+    output_tex_path = os.path.join(output_dir, "book.tex")
+    output_pdf_path = os.path.join(output_dir, "book.pdf")
+
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            latex_template = f.read()
+
+        # Escape LaTeX special characters in content
+        # This is a basic escaping, more robust solution might be needed for complex text
+        latex_content = book_content.replace("&", "\\&")\
+                                    .replace("%", "\\%")\
+                                    .replace("$", "\\$")\
+                                    .replace("#", "\\#")\
+                                    .replace("_", "\\_")\
+                                    .replace("{", "\\{")\
+                                    .replace("}", "\\}")\
+                                    .replace("~", "\\textasciitilde{}")\
+                                    .replace("^", "\\textasciicircum{}")\
+                                    .replace("\\", "\\textbackslash{}")\
+                                    .replace("<", "\\textless{}")\
+                                    .replace(">", "\\textgreater{}")
+
+        # Replace chapter titles with LaTeX sections
+        # Assuming chapters are marked with "## Chapter Title"
+        latex_content = latex_content.replace("## ", "\\chapter*{")
+        latex_content = latex_content.replace("\n\n", "}\\n\\n") # Close chapter title
+
+        final_latex = latex_template.replace("<<BOOK_TITLE>>", book_title)\
+                                    .replace("<<BOOK_CONTENT>>", latex_content)
+
+        with open(output_tex_path, "w", encoding="utf-8") as f:
+            f.write(final_latex)
+
+        # Compile LaTeX to PDF
+        # Run pdflatex twice for table of contents and references to be correct
+        print(f"Compiling LaTeX file: {output_tex_path}")
+        process1 = await asyncio.create_subprocess_exec(
+            "pdflatex", "-output-directory", output_dir, output_tex_path,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout1, stderr1 = await process1.communicate()
+        print(f"pdflatex stdout (1st pass):\n{stdout1.decode()}")
+        if stderr1:
+            print(f"pdflatex stderr (1st pass):\n{stderr1.decode()}")
+
+        process2 = await asyncio.create_subprocess_exec(
+            "pdflatex", "-output-directory", output_dir, output_tex_path,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout2, stderr2 = await process2.communicate()
+        print(f"pdflatex stdout (2nd pass):\n{stdout2.decode()}")
+        if stderr2:
+            print(f"pdflatex stderr (2nd pass):\n{stderr2.decode()}")
+
+        if not os.path.exists(output_pdf_path):
+            raise Exception(f"PDF file not created. pdflatex output: {stdout2.decode()} {stderr2.decode()}")
+
+        print(f"PDF generated successfully at: {output_pdf_path}")
+        return output_pdf_path
+
+    except FileNotFoundError:
+        raise Exception("pdflatex command not found. Please ensure LaTeX is installed and in your PATH.")
+    except Exception as e:
+        raise Exception(f"Error generating PDF: {e}")
+    finally:
+        # Clean up auxiliary files
+        for ext in [".aux", ".log", ".out", ".toc", ".lof", ".lot", ".bbl", ".blg", ".fls", ".fdb_latexmk"]:
+            if os.path.exists(output_tex_path.replace(".tex", ext)):
+                os.remove(output_tex_path.replace(".tex", ext))
 
 # Example usage (for testing purposes)
 # if __name__ == "__main__":
