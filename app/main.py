@@ -23,7 +23,7 @@ from .generators.podcast import (
 )
 from .generators.article import generate_article
 from .generators.social import generate_tweet_thread
-from .generators.book import generate_book_chapter
+from .generators.book import generate_book_chapter, generate_book
 import json # For saving tweet_thread output
 from .config import OUTPUT_DIR
 from app.api import games
@@ -51,6 +51,15 @@ class TweetOptions(BaseModel):
     call_to_action: Optional[str] = None
     # placeholder for future tweet-specific options like tone (e.g. "professional", "witty")
 
+class BookOptions(BaseModel):
+    book_topic: Optional[str] = None # General topic for the entire book
+    num_chapters: Optional[int] = Query(default=10, ge=1, le=50) # Number of chapters to generate
+    desired_chapter_length_words: Optional[int] = Query(default=0, ge=0) # Desired length for each chapter
+    plot_summary: Optional[str] = None # Overall plot summary for the book
+    characters: Optional[List[str]] = None # Main characters for the book
+    genre: Optional[str] = None # Genre for the entire book
+    # placeholder for future book-specific options
+
 class BookChapterOptions(BaseModel):
     plot_summary: Optional[str] = None
     chapter_topic: Optional[str] = None # More specific topic for the chapter
@@ -60,7 +69,7 @@ class BookChapterOptions(BaseModel):
     # placeholder for future book-specific options
 
 class ContentRequest(BaseModel):
-    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter", "music", "audiobook"]
+    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter", "music", "audiobook", "book"]
     topic: Optional[str] = None  # character_description for stories, topic for educational content, primary subject for text types
 
     # New fields for music and audiobook
@@ -80,6 +89,7 @@ class ContentRequest(BaseModel):
     article_options: Optional[ArticleOptions] = None
     tweet_options: Optional[TweetOptions] = None
     book_chapter_options: Optional[BookChapterOptions] = None
+    book_options: Optional[BookOptions] = None
 
     # Common text generation parameters
     desired_length_words: Optional[int] = Query(default=0, ge=0) # 0 might mean model default or not applicable
@@ -520,6 +530,36 @@ async def process_content_generation(job_id: str, request: ContentRequest, outpu
                 f.write(generated_text)
             active_jobs[job_id]["output_filename"] = output_filename
             active_jobs[job_id]["media_type"] = media_type
+
+        elif request.content_type == "book":
+            text_content_only = True
+            if not request.book_options:
+                raise HTTPException(status_code=400, detail="Book options are required for book generation.")
+            
+            book_content_data = await generate_book(
+                book_topic=request.book_options.book_topic or request.topic,
+                genre=request.book_options.genre,
+                num_chapters=request.book_options.num_chapters,
+                style_tone=request.style_tone,
+                custom_instructions=None, # Assuming not yet added to BookOptions
+                desired_chapter_length_words=request.book_options.desired_chapter_length_words
+            )
+
+            if "error" in book_content_data:
+                raise ValueError(f"Book generation failed: {book_content_data['error']}")
+
+            output_filename = "book.txt"
+            media_type = "text/plain"
+            with open(os.path.join(output_dir, output_filename), 'w') as f:
+                f.write(book_content_data["full_book_content"])
+            active_jobs[job_id]["output_filename"] = output_filename
+            active_jobs[job_id]["media_type"] = media_type
+            active_jobs[job_id]["book_metadata"] = {
+                "title": book_content_data.get("title"),
+                "plot_summary": book_content_data.get("plot_summary"),
+                "characters": book_content_data.get("characters"),
+                "chapters": book_content_data.get("chapters")
+            }
 
         else:
             raise ValueError(f"Unsupported content type: {request.content_type}")

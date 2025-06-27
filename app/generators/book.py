@@ -1,7 +1,8 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from app.llm_clients import generate_text_completion
 from app.config import TEST_MODE
-from app.utils import load_prompt # Import the new utility
+from app.utils import load_prompt
+import json
 
 async def generate_book_chapter(
     plot_summary: Optional[str] = None,
@@ -80,38 +81,161 @@ async def generate_book_chapter(
 
     return chapter_text
 
-# Example usage (optional)
+async def generate_book_outline(
+    book_topic: str,
+    genre: Optional[str] = None,
+    num_chapters: int = 10,
+    style_tone: Optional[str] = None,
+    custom_instructions: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generates a book outline including plot summary, character descriptions,
+    and chapter-by-chapter summaries.
+    """
+    if TEST_MODE:
+        return {
+            "plot_summary": f"Test Mode: Plot summary for a {genre} book about {book_topic}.",
+            "characters": ["Test Character 1", "Test Character 2"],
+            "chapters": [
+                {"title": f"Chapter 1: Introduction to {book_topic}", "summary": "Summary of chapter 1."},
+                {"title": f"Chapter 2: Developing {book_topic}", "summary": "Summary of chapter 2."
+            ]
+        }
+
+    prompt = load_prompt(
+        "book_outline_generator_prompt.txt",
+        book_topic=book_topic,
+        genre=genre if genre else "not specified",
+        num_chapters=str(num_chapters),
+        style_tone=style_tone if style_tone else "neutral",
+        custom_instructions=custom_instructions if custom_instructions else ""
+    )
+
+    if prompt.startswith("Error:"):
+        return {"error": prompt}
+
+    # Max tokens for outline generation should be sufficient for a structured JSON output
+    # A chapter summary might be 50-100 words, so 10 chapters * 100 words * 1.6 tokens/word = 1600 tokens
+    # Plus plot and characters, let's aim for 2000-3000 tokens.
+    outline_text = await generate_text_completion(
+        prompt=prompt,
+        temperature=0.7,
+        max_tokens=3000
+    )
+
+    if outline_text.startswith("Error:"):
+        return {"error": f"Error generating book outline: {outline_text}"}
+
+    try:
+        # Assuming the LLM is instructed to output JSON
+        outline = json.loads(outline_text)
+        return outline
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from outline generation: {e}")
+        print(f"LLM Output: {outline_text}")
+        return {"error": "Failed to parse book outline from LLM response. Invalid JSON format."}
+
+async def generate_book(
+    book_topic: str,
+    genre: Optional[str] = None,
+    num_chapters: int = 10,
+    style_tone: Optional[str] = None,
+    custom_instructions: Optional[str] = None,
+    desired_chapter_length_words: int = 0
+) -> Dict[str, Any]:
+    """
+    Generates a complete book by first creating an outline and then
+    generating each chapter.
+    """
+    if TEST_MODE:
+        print(f"Test Mode: Generating book for topic: {book_topic}")
+        outline = await generate_book_outline(book_topic, genre, num_chapters, style_tone, custom_instructions)
+        if "error" in outline:
+            return outline
+        
+        book_content = []
+        for i, chapter_info in enumerate(outline.get("chapters", [])):
+            chapter_text = await generate_book_chapter(
+                plot_summary=outline.get("plot_summary"),
+                chapter_topic=chapter_info.get("summary"),
+                previous_chapter_summary=f"Summary of previous chapter {i} (mock)",
+                characters=outline.get("characters"),
+                genre=genre,
+                style_tone=style_tone,
+                desired_length_words=desired_chapter_length_words,
+                custom_instructions=custom_instructions
+            )
+            book_content.append(f"## {chapter_info.get('title', f'Chapter {i+1}')}\n\n{chapter_text}\n\n")
+        
+        return {
+            "title": f"Test Book: {book_topic}",
+            "plot_summary": outline.get("plot_summary"),
+            "characters": outline.get("characters"),
+            "chapters": outline.get("chapters"),
+            "full_book_content": "".join(book_content)
+        }
+
+    print(f"Generating outline for book: {book_topic} ({num_chapters} chapters)")
+    outline = await generate_book_outline(book_topic, genre, num_chapters, style_tone, custom_instructions)
+
+    if "error" in outline:
+        return outline
+
+    full_book_content = []
+    previous_chapter_summary = None
+
+    for i, chapter_info in enumerate(outline.get("chapters", [])):
+        print(f"Generating chapter {i+1}: {chapter_info.get('title', 'Untitled Chapter')}")
+        chapter_text = await generate_book_chapter(
+            plot_summary=outline.get("plot_summary"),
+            chapter_topic=chapter_info.get("summary"), # Use chapter summary as topic
+            previous_chapter_summary=previous_chapter_summary,
+            characters=outline.get("characters"),
+            genre=genre,
+            style_tone=style_tone,
+            desired_length_words=desired_chapter_length_words,
+            custom_instructions=custom_instructions
+        )
+
+        if chapter_text.startswith("Error:"):
+            return {"error": f"Failed to generate chapter {i+1}: {chapter_text}"}
+        
+        full_book_content.append(f"## {chapter_info.get('title', f'Chapter {i+1}')}\n\n{chapter_text}\n\n")
+        previous_chapter_summary = chapter_info.get("summary") # Update for next chapter
+
+    return {
+        "title": f"Book: {book_topic}",
+        "plot_summary": outline.get("plot_summary"),
+        "characters": outline.get("characters"),
+        "chapters": outline.get("chapters"),
+        "full_book_content": "".join(full_book_content)
+    }
+
+# Example usage (for testing purposes)
 # if __name__ == "__main__":
 #     import asyncio
-#     async def test_chapter():
-#         # from app.config import LLM_PROVIDER, ANTHROPIC_KEY
-#         # print(f"Using LLM Provider: {LLM_PROVIDER}")
-#         # if LLM_PROVIDER == 'anthropic' and not ANTHROPIC_KEY:
-#         #     print("ANTHROPIC_KEY not set. Exiting.")
-#         #     return
-
-#         chapter = await generate_book_chapter(
-#             genre="science fiction",
-#             style_tone="suspenseful and thought-provoking",
-#             characters=["Captain Eva Rostova", "Dr. Aris Thorne", "The AI Entity 'Oracle'"],
-#             plot_summary="A crew on a deep space mission discovers an ancient alien artifact that "
-#                          "challenges their understanding of the universe and their own existence.",
-#             previous_chapter_summary="The crew successfully decoded the first layer of the artifact, "
-#                                      "revealing a star map to an unknown galaxy, but also triggering a "
-#                                      "strange energy surge that affected the ship's AI.",
-#             chapter_topic="The immediate aftermath of the energy surge and the crew's first attempt "
-#                           "to communicate with the altered AI.",
-#             desired_length_words=1500,
-#             custom_instructions="Focus on Eva's internal conflict and her suspicion of Oracle."
-#         )
-#         print(f"--- Book Chapter ---\n{chapter}")
-
-#         # Test TEST_MODE
-#         # from app import config
-#         # config.TEST_MODE = True
-#         # test_mode_chapter = await generate_book_chapter(
-#         #     genre="Fantasy", chapter_topic="The dragon's secret", desired_length_words=100
+#     async def test_book_generation():
+#         # Test outline generation
+#         # outline = await generate_book_outline(
+#         #     book_topic="A detective solving a mystery in a futuristic city",
+#         #     genre="cyberpunk mystery",
+#         #     num_chapters=3
 #         # )
-#         # print(f"\n--- Test Mode Chapter ---\n{test_mode_chapter}")
+#         # print("\n--- Generated Outline ---")
+#         # print(json.dumps(outline, indent=2))
 
-#     asyncio.run(test_chapter())
+#         # Test full book generation
+#         book = await generate_book(
+#             book_topic="The last dragon's journey",
+#             genre="fantasy",
+#             num_chapters=2,
+#             style_tone="epic and melancholic",
+#             desired_chapter_length_words=500
+#         )
+#         print("\n--- Generated Book ---")
+#         if "error" in book:
+#             print(book["error"])
+#         else:
+#             print(book["full_book_content"])
+
+#     asyncio.run(test_book_generation())
