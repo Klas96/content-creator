@@ -13,7 +13,7 @@ from pathlib import Path
 from .generators.story import generate_story
 from .generators.educational import generate_educational_content
 from .generators.image import generate_images
-from .generators.audio import generate_voice_over, generate_background_music, generate_dialogue
+from .generators.audio import generate_voice_over, generate_background_music, generate_dialogue, generate_music, generate_audiobook
 from .generators.video import create_video_async
 from .generators.podcast import (
     generate_podcast_from_custom_text,
@@ -60,8 +60,12 @@ class BookChapterOptions(BaseModel):
     # placeholder for future book-specific options
 
 class ContentRequest(BaseModel):
-    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter"]
-    topic: str  # character_description for stories, topic for educational content, primary subject for text types
+    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter", "music", "audiobook"]
+    topic: Optional[str] = None  # character_description for stories, topic for educational content, primary subject for text types
+
+    # New fields for music and audiobook
+    music_prompt: Optional[str] = None
+    audiobook_text: Optional[str] = None
 
     # Video/Educational specific (could be refactored further if more types emerge)
     video_prompt: Optional[str] = None
@@ -417,6 +421,36 @@ async def process_content_generation(job_id: str, request: ContentRequest, outpu
                     "output_filename": output_filename,
                     "media_type": "audio/mpeg"
                 })
+
+        elif request.content_type == "music":
+            if not request.music_prompt:
+                raise HTTPException(status_code=400, detail="Music prompt is required for music generation.")
+            
+            output_filename = "music.mp3"
+            output_path = os.path.join(output_dir, output_filename)
+            await generate_music(request.music_prompt, output_path)
+            
+            active_jobs[job_id].update({
+                "status": "completed",
+                "output_filename": output_filename,
+                "media_type": "audio/mpeg"
+            })
+            text_content_only = True # No video/images for music
+
+        elif request.content_type == "audiobook":
+            if not request.audiobook_text:
+                raise HTTPException(status_code=400, detail="Audiobook text is required for audiobook generation.")
+            
+            output_filename = "audiobook.mp3"
+            output_path = os.path.join(output_dir, output_filename)
+            await generate_audiobook(request.audiobook_text, output_path, request.voice_name)
+            
+            active_jobs[job_id].update({
+                "status": "completed",
+                "output_filename": output_filename,
+                "media_type": "audio/mpeg"
+            })
+            text_content_only = True # No video/images for audiobook
 
         elif request.content_type == "article":
             text_content_only = True

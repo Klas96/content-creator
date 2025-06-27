@@ -109,3 +109,34 @@ async def generate_background_music(duration: int, output_path: str):
     # For now, just create a mock audio file
     audio, sample_rate = create_mock_audio(duration=duration)
     wavfile.write(output_path, sample_rate, audio)
+
+async def generate_music(music_prompt: str, output_path: str):
+    """
+    Generate music based on a prompt.
+    This will eventually integrate with Suno API or similar.
+    """
+    if TEST_MODE:
+        audio, sample_rate = create_mock_audio(duration=60) # Mock 60 seconds of music
+        wavfile.write(output_path, sample_rate, audio)
+        print(f"Test mode: Generated mock music for prompt: '{music_prompt}'")
+        return
+
+    # TODO: Integrate with Suno API or another music generation service
+    # For now, it will just create a mock audio file if not in TEST_MODE
+    print(f"Warning: Suno API integration not yet implemented. Generating mock music for prompt: '{music_prompt}'")
+    audio, sample_rate = create_mock_audio(duration=60) # Mock 60 seconds of music
+    wavfile.write(output_path, sample_rate, audio)
+
+async def generate_audiobook(text: str, output_path: str, voice_name: str = None):
+    """
+    Generate an audiobook from text using ElevenLabs.
+    """
+    if TEST_MODE:
+        audio, sample_rate = create_mock_audio(duration=len(text) / 10) # Estimate duration based on text length
+        wavfile.write(output_path, sample_rate, audio)
+        print(f"Test mode: Generated mock audiobook for text (first 50 chars): '{text[:50]}...'")
+        return
+    
+    print(f"Generating audiobook for text (first 50 chars): '{text[:50]}...'")
+    await generate_voice_over(text, output_path, voice_name)
+    print(f"Audiobook generated at: {output_path}")

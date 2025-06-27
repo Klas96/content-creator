@@ -18,6 +18,9 @@ ELEVENLABS_KEY = os.getenv('ELEVENLABS_KEY')
 if not ELEVENLABS_KEY:
     raise ValueError("ELEVENLABS_KEY not found in environment variables")
 
+SUNO_API_KEY = os.getenv('SUNO_API_KEY')
+# SUNO_API_KEY is optional for now, as it's a new feature
+
 # Configuration
 TEST_MODE = os.getenv('TEST_MODE', 'False').lower() == 'true'
 OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
