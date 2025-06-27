@@ -261,64 +261,7 @@ async def list_videos(
     
     return sorted(videos, key=lambda x: x.created_at, reverse=True)[:limit]
 
-@app.get("/video/{job_id}/stream")
-async def stream_video(job_id: str):
-    """Stream video content."""
-    if job_id not in active_jobs:
-        raise HTTPException(status_code=404, detail="Video not found")
-    
-    job_info = active_jobs[job_id]
-    if job_info["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Video generation not completed")
-    
-    video_path = os.path.join(job_info["output_dir"], "content_video.mp4")
-    if not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail="Video file not found")
-    
-    return StreamingResponse(
-        open(video_path, "rb"),
-        media_type="video/mp4",
-        headers={
-            "Accept-Ranges": "bytes",
-            "Content-Disposition": f'attachment; filename="{job_info["content_type"]}_{job_id}.mp4"'
-        }
-    )
 
-@app.get("/video/{job_id}/embed")
-async def get_video_embed(job_id: str):
-    """Get HTML embed code for the video."""
-    if job_id not in active_jobs:
-        raise HTTPException(status_code=404, detail="Video not found")
-    
-    job_info = active_jobs[job_id]
-    if job_info["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Video generation not completed")
-    
-    video_url = f"/static/videos/{job_id}.mp4"
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>{job_info['content_type'].capitalize()} Video</title>
-        <style>
-            body {{ margin: 0; padding: 20px; background: #f0f0f0; }}
-            .video-container {{ max-width: 800px; margin: 0 auto; }}
-            video {{ width: 100%; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        </style>
-    </head>
-    <body>
-        <div class="video-container">
-            <video controls>
-                <source src="{video_url}" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
-        </div>
-    </body>
-    </html>
-    """
-    
-    return HTMLResponse(content=html)
 
 @app.get("/video/{job_id}/info")
 async def get_video_info(job_id: str):
