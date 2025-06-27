@@ -58,6 +58,7 @@ class BookOptions(BaseModel):
     plot_summary: Optional[str] = None # Overall plot summary for the book
     characters: Optional[List[str]] = None # Main characters for the book
     genre: Optional[str] = None # Genre for the entire book
+    generate_audio_version: Optional[bool] = False # New: Option to generate an audiobook version
     # placeholder for future book-specific options
 
 class BookChapterOptions(BaseModel):
@@ -69,12 +70,13 @@ class BookChapterOptions(BaseModel):
     # placeholder for future book-specific options
 
 class ContentRequest(BaseModel):
-    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter", "music", "audiobook", "book"]
+    content_type: Literal["story", "educational", "podcast", "article", "tweet_thread", "book_chapter", "music", "audiobook", "book", "existing_book_audiobook"]
     topic: Optional[str] = None  # character_description for stories, topic for educational content, primary subject for text types
 
     # New fields for music and audiobook
     music_prompt: Optional[str] = None
     audiobook_text: Optional[str] = None
+    existing_book_text: Optional[str] = None # New: For generating audiobook from existing text
 
     # Video/Educational specific (could be refactored further if more types emerge)
     video_prompt: Optional[str] = None
@@ -197,6 +199,9 @@ async def download_content(job_id: str):
         elif content_type in ["story", "educational"]:
             output_filename = "content_video.mp4"
             media_type = "video/mp4"
+        elif content_type == "book" and job_info.get("audiobook_filename"):
+            output_filename = job_info["audiobook_filename"]
+            media_type = job_info["audiobook_media_type"]
         else:
             raise HTTPException(status_code=500, detail="Job output information is incomplete.")
 
@@ -563,6 +568,33 @@ async def process_content_generation(job_id: str, request: ContentRequest, outpu
                 "characters": book_content_data.get("characters"),
                 "chapters": book_content_data.get("chapters")
             }
+
+            # If requested, generate an audiobook version
+            if request.book_options.generate_audio_version:
+                audiobook_output_filename = "book_audio.mp3"
+                audiobook_output_path = os.path.join(output_dir, audiobook_output_filename)
+                await generate_audiobook(
+                    book_content_data["full_book_content"],
+                    audiobook_output_path,
+                    request.voice_name # Use the requested voice for the audiobook
+                )
+                active_jobs[job_id]["audiobook_filename"] = audiobook_output_filename
+                active_jobs[job_id]["audiobook_media_type"] = "audio/mpeg"
+
+        elif request.content_type == "existing_book_audiobook":
+            if not request.existing_book_text:
+                raise HTTPException(status_code=400, detail="Existing book text is required for audiobook generation.")
+            
+            output_filename = "existing_book_audiobook.mp3"
+            output_path = os.path.join(output_dir, output_filename)
+            await generate_audiobook(request.existing_book_text, output_path, request.voice_name)
+            
+            active_jobs[job_id].update({
+                "status": "completed",
+                "output_filename": output_filename,
+                "media_type": "audio/mpeg"
+            })
+            text_content_only = True # No video/images for audiobook
 
         else:
             raise ValueError(f"Unsupported content type: {request.content_type}")
